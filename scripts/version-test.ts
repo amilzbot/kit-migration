@@ -2,6 +2,7 @@
  * Kit Version Compatibility Tester
  * 
  * Tests cookbook functions against different Kit versions to detect breaking changes.
+ * Results are written to test-results.md
  * 
  * Usage:
  *   bun run scripts/version-test.ts                    # Test default versions
@@ -10,6 +11,7 @@
  */
 
 import { $ } from "bun";
+import { writeFileSync } from "fs";
 
 const DEFAULT_VERSIONS = [
   "5.5.1",
@@ -26,6 +28,13 @@ interface TestResult {
   errors: string[];
 }
 
+const output: string[] = [];
+
+function log(msg: string) {
+  console.log(msg);
+  output.push(msg);
+}
+
 async function testVersion(version: string): Promise<TestResult> {
   const result: TestResult = {
     version,
@@ -34,16 +43,16 @@ async function testVersion(version: string): Promise<TestResult> {
     errors: [],
   };
   
-  process.stdout.write(`| ${version.padEnd(7)} |`);
+  process.stdout.write(`Testing ${version}...`);
   
   // Install specific version
   try {
     await $`bun add @solana/kit@${version} 2>&1`.quiet();
     result.installed = true;
-    process.stdout.write(" ✓        |");
+    process.stdout.write(" installed...");
   } catch (e: any) {
     result.errors.push(`Install failed`);
-    console.log(" ✗        | ✗        | Install failed");
+    console.log(" INSTALL FAILED");
     return result;
   }
   
@@ -52,25 +61,26 @@ async function testVersion(version: string): Promise<TestResult> {
     const proc = await $`bun build scripts/cookbook.ts --target node 2>&1`.nothrow();
     if (proc.exitCode === 0) {
       result.compiles = true;
-      console.log(" ✓        |");
+      console.log(" OK");
     } else {
-      const output = proc.stderr.toString() + proc.stdout.toString();
+      const rawOutput = proc.stderr.toString() + proc.stdout.toString();
       
       // Extract key errors
-      const lines = output.split('\n');
+      const lines = rawOutput.split('\n');
       const errorLines = lines.filter(l => 
         l.includes('error:') || 
         l.includes('has no exported member') ||
         l.includes('does not exist') ||
-        l.includes('is not assignable')
-      ).slice(0, 10);
+        l.includes('is not assignable') ||
+        l.includes('Cannot find')
+      ).slice(0, 20);
       
-      result.errors = errorLines.map(l => l.trim().slice(0, 120));
-      console.log(` ✗        | ${result.errors.length} errors`);
+      result.errors = errorLines.map(l => l.trim());
+      console.log(` FAILED (${result.errors.length} errors)`);
     }
   } catch (e: any) {
-    result.errors.push(e.message?.slice(0, 100) || "Unknown error");
-    console.log(" ✗        | Build exception");
+    result.errors.push(e.message || "Unknown error");
+    console.log(" BUILD EXCEPTION");
   }
   
   return result;
@@ -80,10 +90,13 @@ async function main() {
   const args = process.argv.slice(2);
   const versionsToTest = args.length > 0 ? args : DEFAULT_VERSIONS;
   
-  console.log("# Kit Version Compatibility Test\n");
-  console.log(`Testing ${versionsToTest.length} versions...\n`);
-  console.log("| Version | Installs | Compiles | Notes |");
-  console.log("|---------|----------|----------|-------|");
+  log("# Kit Version Compatibility Test Results");
+  log("");
+  log(`**Date:** ${new Date().toISOString()}`);
+  log(`**Versions tested:** ${versionsToTest.length}`);
+  log("");
+  
+  console.log(`\nTesting ${versionsToTest.length} versions...\n`);
   
   const results: TestResult[] = [];
   
@@ -96,25 +109,47 @@ async function main() {
   console.log("\nRestoring @solana/kit@latest...");
   await $`bun add @solana/kit@latest 2>&1`.quiet();
   
+  // Write results table
+  log("## Results Table");
+  log("");
+  log("| Version | Installs | Compiles |");
+  log("|---------|----------|----------|");
+  
+  for (const r of results) {
+    const install = r.installed ? "✓" : "✗";
+    const compile = r.compiles ? "✓" : "✗";
+    log(`| ${r.version} | ${install} | ${compile} |`);
+  }
+  
   // Detailed errors
   const broken = results.filter(r => r.errors.length > 0);
   
   if (broken.length > 0) {
-    console.log("\n## Breaking Changes Detail\n");
+    log("");
+    log("## Breaking Changes Detail");
     
     for (const r of broken) {
-      console.log(`### ${r.version}\n`);
-      console.log("```");
-      r.errors.forEach(e => console.log(e));
-      console.log("```\n");
+      log("");
+      log(`### ${r.version}`);
+      log("");
+      log("```");
+      r.errors.forEach(e => log(e));
+      log("```");
     }
   }
   
   // Summary
   const working = results.filter(r => r.compiles);
-  console.log("\n## Summary\n");
-  console.log(`- **Compatible:** ${working.map(r => r.version).join(", ") || "none"}`);
-  console.log(`- **Breaking:** ${broken.map(r => r.version).join(", ") || "none"}`);
+  log("");
+  log("## Summary");
+  log("");
+  log(`- **Compatible:** ${working.map(r => r.version).join(", ") || "none"}`);
+  log(`- **Breaking:** ${broken.map(r => r.version).join(", ") || "none"}`);
+  
+  // Write to file
+  const outputFile = "test-results.md";
+  writeFileSync(outputFile, output.join("\n"));
+  console.log(`\n✓ Results written to ${outputFile}`);
 }
 
 main().catch(console.error);

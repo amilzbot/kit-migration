@@ -73,18 +73,19 @@ import {
 // Configuration
 // =============================================================================
 
-const DEVNET_RPC = "https://api.devnet.solana.com";
-const DEVNET_WSS = "wss://api.devnet.solana.com";
+// Use localhost for testing (run solana-test-validator)
+const LOCALHOST_RPC = "http://127.0.0.1:8899";
+const LOCALHOST_WSS = "ws://127.0.0.1:8900";
 
 // =============================================================================
 // 1. RPC Connection
 // =============================================================================
 
-export function createRpc(url: string = DEVNET_RPC) {
+export function createRpc(url: string = LOCALHOST_RPC) {
   return createSolanaRpc(url);
 }
 
-export function createRpcSubscriptions(url: string = DEVNET_WSS) {
+export function createRpcSubscriptions(url: string = LOCALHOST_WSS) {
   return createSolanaRpcSubscriptions(url);
 }
 
